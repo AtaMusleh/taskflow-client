@@ -2,15 +2,12 @@
 
 A Kanban task manager with drag-and-drop boards, built as a React 19 + TypeScript single-page app.
 
-![demo](./demo.gif)
-
 **[Live demo](https://taskflow-client-eta.vercel.app)** — sign in with `REPLACE_WITH_DEMO_EMAIL` / `REPLACE_WITH_DEMO_PASSWORD` to skip registration.
 
 <!--
 TODO before publishing:
-  1. Add demo.gif to the repo root.
-  2. Replace REPLACE_WITH_DEMO_EMAIL / REPLACE_WITH_DEMO_PASSWORD above with the seeded read-only account.
-  3. Replace REPLACE_WITH_API_DOCS_URL below with the deployed API documentation URL.
+  1. Replace REPLACE_WITH_DEMO_EMAIL / REPLACE_WITH_DEMO_PASSWORD above with the seeded read-only account.
+  2. Replace REPLACE_WITH_API_DOCS_URL below with the deployed API documentation URL.
 -->
 
 > This is the front-end half of a two-repo project. The REST API it talks to lives in
