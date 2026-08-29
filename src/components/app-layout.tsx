@@ -109,7 +109,7 @@ export function AppLayout() {
         </SheetContent>
       </Sheet>
 
-      <div className="flex min-h-svh flex-col transition-[padding] duration-200 md:pl-(--sidebar-width)">
+      <div className="flex min-h-svh min-w-0 flex-col transition-[padding] duration-200 md:pl-(--sidebar-width)">
         <TopBar
           onOpenMobileNav={() => {
             setIsMobileOpen(true)
@@ -117,7 +117,7 @@ export function AppLayout() {
         />
         {/* min-h-0 so a full-height child (the board) can scroll its own
             columns instead of stretching the page. */}
-        <main className="flex min-h-0 flex-1 flex-col">
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <Outlet />
         </main>
       </div>

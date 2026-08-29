@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useAuth } from "@/contexts/auth-context"
 import { getApiErrorCode, getApiErrorMessage, isApiError } from "@/lib/api"
+import { useDocumentTitle } from "@/lib/use-document-title"
 
 /** Mirrors the API's own rules so the round trip only ever fails on state. */
 const registerSchema = z
@@ -30,6 +31,8 @@ const registerSchema = z
 type RegisterValues = z.infer<typeof registerSchema>
 
 export default function RegisterPage() {
+  useDocumentTitle("Create account")
+
   const { register: registerUser, user, isLoading } = useAuth()
   const navigate = useNavigate()
 
@@ -87,7 +90,7 @@ export default function RegisterPage() {
           Already have an account?{" "}
           <Link
             to="/login"
-            className="font-medium text-foreground underline-offset-4 hover:underline"
+            className="rounded-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/40 font-medium text-foreground underline-offset-4 hover:underline"
           >
             Sign in
           </Link>

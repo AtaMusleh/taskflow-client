@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useAuth } from "@/contexts/auth-context"
 import { getApiErrorCode, getApiErrorMessage, isApiError } from "@/lib/api"
+import { useDocumentTitle } from "@/lib/use-document-title"
 
 /**
  * Sign-in deliberately does not restate the password rules — length or
@@ -27,6 +28,8 @@ const loginSchema = z.object({
 type LoginValues = z.infer<typeof loginSchema>
 
 export default function LoginPage() {
+  useDocumentTitle("Sign in")
+
   const { login, user, isLoading } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -84,7 +87,7 @@ export default function LoginPage() {
           Don&rsquo;t have an account?{" "}
           <Link
             to="/register"
-            className="font-medium text-foreground underline-offset-4 hover:underline"
+            className="rounded-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/40 font-medium text-foreground underline-offset-4 hover:underline"
           >
             Create one
           </Link>

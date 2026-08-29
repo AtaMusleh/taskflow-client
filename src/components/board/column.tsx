@@ -34,7 +34,11 @@ export function Column({
   return (
     <section
       className={cn(
-        "flex w-72 shrink-0 flex-col rounded-4xl bg-muted/40 transition-colors md:w-auto md:flex-1",
+        // `relative` is load-bearing: the sr-only spans inside are
+        // position:absolute, and without a positioned ancestor they resolve
+        // against the document, escape the horizontal scroller, and stretch the
+        // page's scroll width on mobile.
+        "relative flex w-72 shrink-0 snap-start flex-col rounded-4xl bg-muted/40 transition-colors lg:w-auto lg:flex-1 lg:snap-align-none",
         isOver && "bg-muted",
       )}
       aria-label={TASK_STATUS_LABELS[status]}

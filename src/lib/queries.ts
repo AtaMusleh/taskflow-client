@@ -1,13 +1,15 @@
+import { useEffect, useRef } from "react"
 import {
   useMutation,
   useQuery,
   useQueryClient,
+  type UseMutationOptions,
   type UseMutationResult,
   type UseQueryResult,
 } from "@tanstack/react-query"
 import { toast } from "sonner"
 
-import { api, getApiErrorMessage } from "@/lib/api"
+import { api, getApiErrorMessage, isApiError } from "@/lib/api"
 import type {
   CreateProjectRequest,
   CreateTaskRequest,
@@ -18,6 +20,7 @@ import type {
   ProjectsResponse,
   Task,
   TaskResponse,
+  TaskStatus,
   TasksResponse,
   UpdateProjectRequest,
   UpdateTaskRequest,
@@ -44,7 +47,73 @@ export const queryKeys = {
 } as const
 
 /* -------------------------------------------------------------------------- */
-/* Queries                                                                    */
+/* Error reporting                                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Whether running the exact same request again could plausibly succeed.
+ *
+ * A network failure or a 5xx is worth retrying. A 4xx is not: the request
+ * itself is the problem, and a Retry button that always fails is worse than no
+ * button at all. 429 is the exception — it is a "not yet", not a "never".
+ */
+function isRetryableError(error: unknown): boolean {
+  if (!isApiError(error)) return false
+  const status = error.response?.status
+  if (status === undefined) return true
+  return status === 429 || status >= 500
+}
+
+/**
+ * `useMutation` with a uniform error toast, and a Retry action that re-runs the
+ * mutation with the same variables where that makes sense.
+ *
+ * The ref exists because the toast needs to call the very mutation it is being
+ * configured by; it is written in an effect rather than during render so the
+ * render stays free of side effects.
+ */
+function useMutationWithErrorToast<TData, TVariables, TContext>(
+  fallbackMessage: string,
+  options: UseMutationOptions<TData, Error, TVariables, TContext>,
+): UseMutationResult<TData, Error, TVariables, TContext> {
+  const mutationRef = useRef<UseMutationResult<
+    TData,
+    Error,
+    TVariables,
+    TContext
+  > | null>(null)
+
+  const mutation = useMutation<TData, Error, TVariables, TContext>({
+    ...options,
+    onError: (error, variables, onMutateResult, mutationContext) => {
+      // Per-mutation handling first: that is where rollbacks live.
+      options.onError?.(error, variables, onMutateResult, mutationContext)
+
+      toast.error(
+        getApiErrorMessage(error, fallbackMessage),
+        isRetryableError(error)
+          ? {
+              action: {
+                label: "Retry",
+                onClick: () => {
+                  mutationRef.current?.mutate(variables)
+                },
+              },
+            }
+          : undefined,
+      )
+    },
+  })
+
+  useEffect(() => {
+    mutationRef.current = mutation
+  })
+
+  return mutation
+}
+
+/* -------------------------------------------------------------------------- */
+/* Project queries                                                            */
 /* -------------------------------------------------------------------------- */
 
 export function useProjects(): UseQueryResult<ProjectWithTaskCount[], Error> {
@@ -77,7 +146,7 @@ export function useProject(
 }
 
 /* -------------------------------------------------------------------------- */
-/* Mutations                                                                  */
+/* Project mutations                                                          */
 /* -------------------------------------------------------------------------- */
 
 export function useCreateProject(): UseMutationResult<
@@ -87,7 +156,7 @@ export function useCreateProject(): UseMutationResult<
 > {
   const queryClient = useQueryClient()
 
-  return useMutation({
+  return useMutationWithErrorToast("Could not create that project.", {
     mutationFn: async (input: CreateProjectRequest) => {
       const { data } = await api.post<ProjectResponse>("/projects", input)
       return data.project
@@ -95,9 +164,6 @@ export function useCreateProject(): UseMutationResult<
     onSuccess: (project) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all })
       toast.success(`Created “${project.name}”`)
-    },
-    onError: (error) => {
-      toast.error(getApiErrorMessage(error))
     },
   })
 }
@@ -114,7 +180,7 @@ export function useUpdateProject(): UseMutationResult<
 > {
   const queryClient = useQueryClient()
 
-  return useMutation({
+  return useMutationWithErrorToast("Could not save that project.", {
     mutationFn: async ({ id, input }: UpdateProjectVariables) => {
       const { data } = await api.patch<ProjectResponse>(
         `/projects/${id}`,
@@ -129,16 +195,13 @@ export function useUpdateProject(): UseMutationResult<
       void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all })
       toast.success(`Renamed to “${project.name}”`)
     },
-    onError: (error) => {
-      toast.error(getApiErrorMessage(error))
-    },
   })
 }
 
 export function useDeleteProject(): UseMutationResult<void, Error, Project> {
   const queryClient = useQueryClient()
 
-  return useMutation({
+  return useMutationWithErrorToast("Could not delete that project.", {
     // Takes the whole project rather than an id so the toast can name it.
     mutationFn: async (project: Project) => {
       await api.delete(`/projects/${project.id}`)
@@ -155,15 +218,38 @@ export function useDeleteProject(): UseMutationResult<void, Error, Project> {
       void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all })
       toast.success(`Deleted “${project.name}”`)
     },
-    onError: (error) => {
-      toast.error(getApiErrorMessage(error))
-    },
   })
 }
 
 /* -------------------------------------------------------------------------- */
 /* Tasks                                                                      */
 /* -------------------------------------------------------------------------- */
+
+/**
+ * Ids of tasks that exist only in the cache, awaiting the server's real one.
+ * The board uses this to keep a pending card from being dragged — a move
+ * addressed to an id the API has never seen would fail.
+ */
+const OPTIMISTIC_ID_PREFIX = "optimistic-"
+
+export function isOptimisticId(id: string): boolean {
+  return id.startsWith(OPTIMISTIC_ID_PREFIX)
+}
+
+/** Shared by every mutation that rewrites a project's task list. */
+interface TaskListContext {
+  previousTasks: Task[] | undefined
+}
+
+function endOfColumnPosition(
+  tasks: Task[] | undefined,
+  status: TaskStatus,
+): number {
+  const positions = (tasks ?? [])
+    .filter((task) => task.status === status)
+    .map((task) => task.position)
+  return positions.length === 0 ? 0 : Math.max(...positions) + 1
+}
 
 export function useTasks(
   projectId: string | undefined,
@@ -189,29 +275,73 @@ export interface CreateTaskVariables {
 export function useCreateTask(): UseMutationResult<
   Task,
   Error,
-  CreateTaskVariables
+  CreateTaskVariables,
+  TaskListContext
 > {
   const queryClient = useQueryClient()
 
-  return useMutation({
-    mutationFn: async ({ projectId, input }: CreateTaskVariables) => {
-      const { data } = await api.post<TaskResponse>(
-        `/projects/${projectId}/tasks`,
-        input,
-      )
-      return data.task
+  return useMutationWithErrorToast<Task, CreateTaskVariables, TaskListContext>(
+    "Could not create that task.",
+    {
+      mutationFn: async ({ projectId, input }) => {
+        const { data } = await api.post<TaskResponse>(
+          `/projects/${projectId}/tasks`,
+          input,
+        )
+        return data.task
+      },
+
+      onMutate: async ({ projectId, input }) => {
+        const queryKey = queryKeys.tasks.byProject(projectId)
+        await queryClient.cancelQueries({ queryKey })
+
+        const previousTasks = queryClient.getQueryData<Task[]>(queryKey)
+        const status = input.status ?? "TODO"
+        const timestamp = new Date().toISOString()
+
+        // A stand-in card so the column fills immediately. Everything the API
+        // would decide (id, position, timestamps) is provisional and replaced
+        // by the refetch in onSettled.
+        const optimisticTask: Task = {
+          id: `${OPTIMISTIC_ID_PREFIX}${crypto.randomUUID()}`,
+          title: input.title,
+          description: input.description ?? null,
+          status,
+          priority: input.priority ?? "MEDIUM",
+          dueDate: input.dueDate ?? null,
+          projectId,
+          assigneeId: input.assigneeId ?? null,
+          position: endOfColumnPosition(previousTasks, status),
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        }
+
+        queryClient.setQueryData<Task[]>(queryKey, [
+          ...(previousTasks ?? []),
+          optimisticTask,
+        ])
+
+        return { previousTasks }
+      },
+
+      onError: (_error, { projectId }, context) => {
+        if (context?.previousTasks !== undefined) {
+          queryClient.setQueryData(
+            queryKeys.tasks.byProject(projectId),
+            context.previousTasks,
+          )
+        }
+      },
+
+      onSettled: (_data, _error, { projectId }) => {
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.tasks.byProject(projectId),
+        })
+        // The sidebar shows a task count per project, so it is stale now too.
+        void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all })
+      },
     },
-    onSuccess: (task) => {
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.tasks.byProject(task.projectId),
-      })
-      // The sidebar shows a task count per project, so it is stale now too.
-      void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all })
-    },
-    onError: (error) => {
-      toast.error(getApiErrorMessage(error))
-    },
-  })
+  )
 }
 
 export interface UpdateTaskVariables {
@@ -227,7 +357,7 @@ export function useUpdateTask(): UseMutationResult<
 > {
   const queryClient = useQueryClient()
 
-  return useMutation({
+  return useMutationWithErrorToast("Could not save that task.", {
     mutationFn: async ({ taskId, input }: UpdateTaskVariables) => {
       const { data } = await api.patch<TaskResponse>(`/tasks/${taskId}`, input)
       return data.task
@@ -237,38 +367,64 @@ export function useUpdateTask(): UseMutationResult<
         queryKey: queryKeys.tasks.byProject(task.projectId),
       })
     },
-    onError: (error) => {
-      toast.error(getApiErrorMessage(error))
-    },
   })
 }
 
-export function useDeleteTask(): UseMutationResult<void, Error, Task> {
+export function useDeleteTask(): UseMutationResult<
+  void,
+  Error,
+  Task,
+  TaskListContext
+> {
   const queryClient = useQueryClient()
 
-  return useMutation({
-    mutationFn: async (task: Task) => {
-      await api.delete(`/tasks/${task.id}`)
+  return useMutationWithErrorToast<void, Task, TaskListContext>(
+    "Could not delete that task.",
+    {
+      mutationFn: async (task) => {
+        await api.delete(`/tasks/${task.id}`)
+      },
+
+      onMutate: async (task) => {
+        const queryKey = queryKeys.tasks.byProject(task.projectId)
+        await queryClient.cancelQueries({ queryKey })
+
+        const previousTasks = queryClient.getQueryData<Task[]>(queryKey)
+        if (previousTasks !== undefined) {
+          queryClient.setQueryData<Task[]>(
+            queryKey,
+            previousTasks.filter((item) => item.id !== task.id),
+          )
+        }
+
+        return { previousTasks }
+      },
+
+      onError: (_error, task, context) => {
+        if (context?.previousTasks !== undefined) {
+          queryClient.setQueryData(
+            queryKeys.tasks.byProject(task.projectId),
+            context.previousTasks,
+          )
+        }
+      },
+
+      onSuccess: () => {
+        toast.success("Task deleted")
+      },
+
+      onSettled: (_data, _error, task) => {
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.tasks.byProject(task.projectId),
+        })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all })
+      },
     },
-    onSuccess: (_result, task) => {
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.tasks.byProject(task.projectId),
-      })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all })
-      toast.success("Task deleted")
-    },
-    onError: (error) => {
-      toast.error(getApiErrorMessage(error))
-    },
-  })
+  )
 }
 
 export interface MoveTaskVariables extends MoveTaskRequest {
   task: Task
-}
-
-interface MoveTaskContext {
-  previousTasks: Task[] | undefined
 }
 
 /**
@@ -294,60 +450,65 @@ export function useMoveTask(): UseMutationResult<
   Task,
   Error,
   MoveTaskVariables,
-  MoveTaskContext
+  TaskListContext
 > {
   const queryClient = useQueryClient()
 
-  return useMutation<Task, Error, MoveTaskVariables, MoveTaskContext>({
-    mutationFn: async ({ task, status, beforeId, afterId }) => {
-      const { data } = await api.patch<TaskResponse>(`/tasks/${task.id}/move`, {
-        status,
-        beforeId,
-        afterId,
-      } satisfies MoveTaskRequest)
-      return data.task
-    },
-
-    onMutate: async ({ task, status, beforeId, afterId }) => {
-      const queryKey = queryKeys.tasks.byProject(task.projectId)
-
-      // Stop any in-flight fetch from resolving after this and clobbering the
-      // optimistic state with a list that predates the move.
-      await queryClient.cancelQueries({ queryKey })
-
-      const previousTasks = queryClient.getQueryData<Task[]>(queryKey)
-
-      if (previousTasks !== undefined) {
-        const before = previousTasks.find((item) => item.id === beforeId)
-        const after = previousTasks.find((item) => item.id === afterId)
-        const position = optimisticPosition(before, after)
-
-        queryClient.setQueryData<Task[]>(
-          queryKey,
-          previousTasks.map((item) =>
-            item.id === task.id ? { ...item, status, position } : item,
-          ),
+  return useMutationWithErrorToast<Task, MoveTaskVariables, TaskListContext>(
+    "Could not move that task.",
+    {
+      mutationFn: async ({ task, status, beforeId, afterId }) => {
+        const { data } = await api.patch<TaskResponse>(
+          `/tasks/${task.id}/move`,
+          {
+            status,
+            beforeId,
+            afterId,
+          } satisfies MoveTaskRequest,
         )
-      }
+        return data.task
+      },
 
-      return { previousTasks }
-    },
+      onMutate: async ({ task, status, beforeId, afterId }) => {
+        const queryKey = queryKeys.tasks.byProject(task.projectId)
 
-    onError: (error, { task }, context) => {
-      if (context?.previousTasks !== undefined) {
-        queryClient.setQueryData(
-          queryKeys.tasks.byProject(task.projectId),
-          context.previousTasks,
-        )
-      }
-      toast.error(getApiErrorMessage(error, "Could not move that task."))
-    },
+        // Stop any in-flight fetch from resolving after this and clobbering the
+        // optimistic state with a list that predates the move.
+        await queryClient.cancelQueries({ queryKey })
 
-    // Whether it succeeded or rolled back, the server decides the final order.
-    onSettled: (_data, _error, { task }) => {
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.tasks.byProject(task.projectId),
-      })
+        const previousTasks = queryClient.getQueryData<Task[]>(queryKey)
+
+        if (previousTasks !== undefined) {
+          const before = previousTasks.find((item) => item.id === beforeId)
+          const after = previousTasks.find((item) => item.id === afterId)
+          const position = optimisticPosition(before, after)
+
+          queryClient.setQueryData<Task[]>(
+            queryKey,
+            previousTasks.map((item) =>
+              item.id === task.id ? { ...item, status, position } : item,
+            ),
+          )
+        }
+
+        return { previousTasks }
+      },
+
+      onError: (_error, { task }, context) => {
+        if (context?.previousTasks !== undefined) {
+          queryClient.setQueryData(
+            queryKeys.tasks.byProject(task.projectId),
+            context.previousTasks,
+          )
+        }
+      },
+
+      // Whether it succeeded or rolled back, the server decides the final order.
+      onSettled: (_data, _error, { task }) => {
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.tasks.byProject(task.projectId),
+        })
+      },
     },
-  })
+  )
 }

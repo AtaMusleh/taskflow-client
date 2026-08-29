@@ -16,6 +16,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { isOptimisticId } from "@/lib/queries"
 import { cn } from "@/lib/utils"
 import { TASK_PRIORITY_LABELS, type Task, type TaskPriority } from "@/types"
 
@@ -33,6 +34,10 @@ interface TaskCardProps {
 
 /** The draggable card in a column. */
 export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
+  // A card created optimistically has no server id yet, so it cannot be moved
+  // or edited until the real one arrives.
+  const isPending = isOptimisticId(task.id)
+
   const {
     attributes,
     listeners,
@@ -40,18 +45,26 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: task.id })
+  } = useSortable({ id: task.id, disabled: isPending })
 
   return (
     <TaskCardView
       task={task}
       onEdit={onEdit}
       onDelete={onDelete}
+      showActions={!isPending}
       ref={setNodeRef}
       style={{ transform: CSS.Translate.toString(transform), transition }}
-      // The original stays in place at low opacity as a gap marker while the
-      // DragOverlay copy follows the cursor.
-      className={cn(isDragging && "opacity-40")}
+      className={cn(
+        // Cards fade in as they arrive — on load, on create, and when a filter
+        // stops hiding them.
+        "animate-in fade-in slide-in-from-bottom-1 duration-200",
+        "focus-visible:ring-3 focus-visible:ring-ring/40 focus-visible:outline-none",
+        // The original stays in place at low opacity as a gap marker while the
+        // DragOverlay copy follows the cursor.
+        isDragging && "opacity-40",
+        isPending && "animate-pulse opacity-60",
+      )}
       {...attributes}
       {...listeners}
     />

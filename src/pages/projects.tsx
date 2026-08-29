@@ -5,6 +5,7 @@ import { ProjectDialog } from "@/components/project-dialog"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useProjects } from "@/lib/queries"
+import { useDocumentTitle } from "@/lib/use-document-title"
 
 /**
  * The index of the authenticated app. No project is selected here, so this is
@@ -13,6 +14,8 @@ import { useProjects } from "@/lib/queries"
  */
 export default function ProjectsPage() {
   const { data: projects, isPending, isError } = useProjects()
+
+  useDocumentTitle("Projects")
   const [isCreateOpen, setIsCreateOpen] = useState(false)
 
   if (isPending) {

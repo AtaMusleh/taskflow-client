@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   DndContext,
   DragOverlay,
@@ -7,9 +7,11 @@ import {
   closestCorners,
   useSensor,
   useSensors,
+  type Announcements,
   type DragEndEvent,
   type DragOverEvent,
   type DragStartEvent,
+  type ScreenReaderInstructions,
 } from "@dnd-kit/core"
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable"
 
@@ -17,7 +19,12 @@ import { Column } from "@/components/board/column"
 import { parseColumnDroppableId } from "@/components/board/droppable-id"
 import { TaskCardOverlay } from "@/components/board/task-card"
 import { useMoveTask } from "@/lib/queries"
-import { TASK_STATUSES, type Task, type TaskStatus } from "@/types"
+import {
+  TASK_STATUSES,
+  TASK_STATUS_LABELS,
+  type Task,
+  type TaskStatus,
+} from "@/types"
 
 type ColumnMap = Record<TaskStatus, Task[]>
 
@@ -47,6 +54,14 @@ function findStatusOf(taskId: string, columns: ColumnMap): TaskStatus | null {
 /** A drop target is either a column's own id or a card sitting in one. */
 function resolveStatus(overId: string, columns: ColumnMap): TaskStatus | null {
   return parseColumnDroppableId(overId) ?? findStatusOf(overId, columns)
+}
+
+/** Read out when a card receives focus, before any drag begins. */
+const screenReaderInstructions: ScreenReaderInstructions = {
+  draggable:
+    "To pick up a task, press Space or Enter. While dragging, use the arrow " +
+    "keys to move it within its column or across to another. Press Space or " +
+    "Enter again to drop it, or Escape to cancel.",
 }
 
 interface BoardProps {
@@ -84,6 +99,53 @@ export function Board({
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
+
+  // Announcements fire mid-drag, so they read the current board from a ref
+  // rather than closing over the render that created them.
+  const boardRef = useRef({ columns, tasks })
+  useEffect(() => {
+    boardRef.current = { columns, tasks }
+  })
+
+  const announcements = useMemo<Announcements>(() => {
+    const titleOf = (id: string): string =>
+      boardRef.current.tasks.find((task) => task.id === id)?.title ?? "task"
+
+    const columnOf = (id: string | undefined): string | null => {
+      if (id === undefined) return null
+      const status = resolveStatus(id, boardRef.current.columns)
+      return status === null ? null : TASK_STATUS_LABELS[status]
+    }
+
+    const positionIn = (id: string): string => {
+      const status = resolveStatus(id, boardRef.current.columns)
+      if (status === null) return ""
+      const column = boardRef.current.columns[status]
+      const index = column.findIndex((task) => task.id === id)
+      if (index === -1) return ""
+      return ` at position ${String(index + 1)} of ${String(column.length)}`
+    }
+
+    return {
+      onDragStart: ({ active }) =>
+        `Picked up ${titleOf(String(active.id))}.`,
+      onDragOver: ({ active, over }) => {
+        const column = columnOf(over === null ? undefined : String(over.id))
+        if (column === null) return undefined
+        return `${titleOf(String(active.id))} is over ${column}.`
+      },
+      onDragEnd: ({ active, over }) => {
+        const activeId = String(active.id)
+        const column = columnOf(over === null ? undefined : String(over.id))
+        if (column === null) {
+          return `${titleOf(activeId)} was dropped outside a column and returned to its place.`
+        }
+        return `${titleOf(activeId)} was dropped in ${column}${positionIn(activeId)}.`
+      },
+      onDragCancel: ({ active }) =>
+        `Move cancelled. ${titleOf(String(active.id))} returned to where it was.`,
+    }
+  }, [])
 
   const resetDrag = () => {
     setActiveTask(null)
@@ -205,10 +267,11 @@ export function Board({
       onDragOver={onDragOver}
       onDragEnd={onDragEnd}
       onDragCancel={resetDrag}
+      accessibility={{ announcements, screenReaderInstructions }}
     >
       {/* Below md the columns keep their width and the row scrolls, so all
           three stay reachable on a 375px screen. */}
-      <div className="flex h-full gap-3 overflow-x-auto px-4 pb-4 md:gap-4 md:overflow-x-visible">
+      <div className="relative flex h-full min-h-[65svh] snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-4 lg:snap-none lg:gap-4 lg:overflow-x-visible">
         {TASK_STATUSES.map((status) => (
           <Column
             key={status}
