@@ -32,6 +32,8 @@ export interface Project {
   id: string
   name: string
   description: string | null
+  /** Hex swatch (e.g. "#6366F1") used as the project's dot in the sidebar. */
+  color: string
   ownerId: string
   createdAt: string
   updatedAt: string
@@ -95,6 +97,7 @@ export interface RefreshResponse {
 
 export interface CreateProjectRequest {
   name: string
+  color?: string
   description?: string | null
 }
 
