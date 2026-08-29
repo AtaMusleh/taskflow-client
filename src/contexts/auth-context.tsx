@@ -18,7 +18,7 @@ export interface AuthContextValue {
   isLoading: boolean
   login: (credentials: LoginRequest) => Promise<User>
   register: (details: RegisterRequest) => Promise<User>
-  logout: () => Promise<void>
+  logout: () => void
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -68,19 +68,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return data.user
   }, [])
 
-  const logout = useCallback(async (): Promise<void> => {
-    try {
-      // Best effort: let the API revoke the refresh token. A failure here must
-      // not strand the user in a session they asked to end.
-      await api.post("/auth/logout")
-    } catch {
-      /* Ignored — the local session is cleared regardless. */
-    } finally {
-      clearTokens()
-      setUser(null)
-      // Drop every cached query so the next user never sees stale data.
-      queryClient.clear()
-    }
+  // Logout is purely client-side: the API exposes no revocation endpoint, so
+  // ending a session means dropping the tokens we hold.
+  const logout = useCallback((): void => {
+    clearTokens()
+    setUser(null)
+    // Drop every cached query so the next user never sees stale data.
+    queryClient.clear()
   }, [])
 
   const value = useMemo<AuthContextValue>(

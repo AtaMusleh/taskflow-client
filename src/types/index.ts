@@ -75,17 +75,18 @@ export interface LoginRequest {
 export interface RegisterRequest {
   email: string
   password: string
-  name: string
+  /** Optional at signup; the user can add it later from their profile. */
+  name?: string
 }
 
 export interface RefreshRequest {
   refreshToken: string
 }
 
-/** Refresh may or may not rotate the refresh token, so it is optional here. */
+/** Refresh always returns both tokens. */
 export interface RefreshResponse {
   accessToken: string
-  refreshToken?: string
+  refreshToken: string
 }
 
 /* -------------------------------------------------------------------------- */

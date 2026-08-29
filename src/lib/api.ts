@@ -79,10 +79,9 @@ async function performRefresh(): Promise<string> {
     refreshToken,
   })
 
-  // The API may or may not rotate the refresh token; keep the old one if not.
   setTokens({
     accessToken: data.accessToken,
-    refreshToken: data.refreshToken ?? refreshToken,
+    refreshToken: data.refreshToken,
   })
 
   return data.accessToken
