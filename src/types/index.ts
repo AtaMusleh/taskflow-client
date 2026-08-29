@@ -20,6 +20,18 @@ export const TASK_STATUSES: readonly TaskStatus[] = ["TODO", "IN_PROGRESS", "DON
 
 export const TASK_PRIORITIES: readonly TaskPriority[] = ["LOW", "MEDIUM", "HIGH"]
 
+export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
+  TODO: "To Do",
+  IN_PROGRESS: "In Progress",
+  DONE: "Done",
+}
+
+export const TASK_PRIORITY_LABELS: Record<TaskPriority, string> = {
+  LOW: "Low",
+  MEDIUM: "Medium",
+  HIGH: "High",
+}
+
 export interface User {
   id: string
   email: string
@@ -114,6 +126,21 @@ export interface CreateTaskRequest {
 
 export interface UpdateTaskRequest extends Partial<CreateTaskRequest> {
   position?: number
+}
+
+/**
+ * A drag-and-drop move. The client sends the neighbours the card was dropped
+ * between and the API computes the position, so two clients reordering at once
+ * cannot land on the same number.
+ *
+ * `beforeId` is the card that ends up directly ABOVE the moved one, `afterId`
+ * the card directly BELOW. Both are omitted when a column is empty; one is
+ * omitted at either end of a column.
+ */
+export interface MoveTaskRequest {
+  status: TaskStatus
+  beforeId?: string
+  afterId?: string
 }
 
 /* -------------------------------------------------------------------------- */

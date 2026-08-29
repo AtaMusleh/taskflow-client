@@ -10,7 +10,7 @@ import { AuthProvider } from "@/contexts/auth-context"
 import { queryClient } from "@/lib/query-client"
 import LoginPage from "@/pages/login"
 import NotFoundPage from "@/pages/not-found"
-import ProjectDetailPage from "@/pages/project-detail"
+import ProjectPage from "@/pages/project"
 import ProjectsPage from "@/pages/projects"
 import RegisterPage from "@/pages/register"
 
@@ -41,7 +41,7 @@ export default function App() {
                   <Route element={<AppLayout />}>
                     <Route index element={<Navigate to="/projects" replace />} />
                     <Route path="/projects" element={<ProjectsPage />} />
-                    <Route path="/projects/:id" element={<ProjectDetailPage />} />
+                    <Route path="/projects/:id" element={<ProjectPage />} />
                   </Route>
                 </Route>
 

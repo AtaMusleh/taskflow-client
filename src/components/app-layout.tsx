@@ -115,7 +115,9 @@ export function AppLayout() {
             setIsMobileOpen(true)
           }}
         />
-        <main className="flex-1">
+        {/* min-h-0 so a full-height child (the board) can scroll its own
+            columns instead of stretching the page. */}
+        <main className="flex min-h-0 flex-1 flex-col">
           <Outlet />
         </main>
       </div>
@@ -245,9 +247,10 @@ function TopBar({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
               aria-hidden="true"
             />
           )}
-          <h1 className="truncate font-heading text-base font-medium">
+          {/* Chrome, not the page heading: each page owns its own <h1>. */}
+          <div className="truncate font-heading text-base font-medium">
             {activeProject?.name ?? "Projects"}
-          </h1>
+          </div>
         </div>
       )}
 

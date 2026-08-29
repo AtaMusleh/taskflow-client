@@ -28,9 +28,9 @@ export default function ProjectsPage() {
   if (isError) {
     return (
       <EmptyStateShell>
-        <h2 className="font-heading text-base font-medium">
+        <h1 className="font-heading text-base font-medium">
           Could not load your projects
-        </h2>
+        </h1>
         <p className="max-w-sm text-sm text-muted-foreground">
           Check your connection and try again.
         </p>
@@ -50,9 +50,9 @@ export default function ProjectsPage() {
           />
         </div>
 
-        <h2 className="font-heading text-base font-medium">
+        <h1 className="font-heading text-base font-medium">
           {hasProjects ? "No project selected" : "Create your first project"}
-        </h2>
+        </h1>
 
         <p className="max-w-sm text-sm text-muted-foreground">
           {hasProjects
